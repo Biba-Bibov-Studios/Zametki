@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Заметки-таблички</title>
+<style>
+  :root{
+    --bg:#f3f2ee; --panel:#ffffff; --panel-border:#e2e0da; --text:#33322e;
+    --btn:#f4f3ef; --btn-hover:#e8e6e0; --muted:#8a887f;
+    --card-shadow:0 2px 8px rgba(0,0,0,.08);
+    --dot:#3a3a3a; --dot-hover:#111111;
+    --line-default:#7d7b74;
+    --menu-bg:#ffffff; --menu-shadow:0 4px 16px rgba(0,0,0,.18);
+  }
+  body.dark{
+    --bg:#232227; --panel:#2e2d33; --panel-border:#3f3e45; --text:#e8e6e1;
+    --btn:#3a3941; --btn-hover:#484750; --muted:#9a98a0;
+    --card-shadow:0 2px 10px rgba(0,0,0,.4);
+    --dot:#d8d6e0; --dot-hover:#ffffff;
+    --line-default:#8b8994;
+    --menu-bg:#3a3941; --menu-shadow:0 4px 16px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box; -webkit-user-select:none; user-select:none;}
+  html,body{height:100%; margin:0;}
+  body{background:var(--bg); color:var(--text); font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+       overflow:hidden; transition:background .35s ease, color .35s ease;}
+
+  #topbar{position:fixed; top:0; left:0; right:0; height:48px; z-index:50;
+    display:flex; align-items:center; gap:8px; padding:0 12px;
+    background:var(--panel); border-bottom:1px solid var(--panel-border); transition:background .35s;}
+  .btn{border:1px solid var(--panel-border); background:var(--btn); color:var(--text);
+    padding:6px 12px; border-radius:8px; font-size:14px; cursor:pointer;
+    transition:background .15s, transform .15s;}
+  .btn:hover{background:var(--btn-hover);}
+  .btn:active{transform:scale(.95);}
+  .hint{color:var(--muted); font-size:12px; margin-left:6px;}
+  #themeBtn{margin-left:auto;}
+
+  #viewport{position:fixed; top:48px; left:0; right:0; bottom:0; overflow:hidden; touch-action:none;}
+  #viewport.panning{cursor:grabbing;}
+  #world{position:absolute; left:0; top:0; width:0; height:0; transform-origin:0 0;}
+
+  #linksSvg{position:absolute; left:0; top:0; overflow:visible; width:10px; height:10px; pointer-events:none;}
+  #linksSvg path.hit{pointer-events:stroke; cursor:pointer;}
+  #linksSvg path.vis{pointer-events:none;}
+
+  .card{position:absolute; min-width:150px; max-width:250px; border-radius:10px;
+    box-shadow:var(--card-shadow); border:1px solid rgba(0,0,0,.14);
+    transition:box-shadow .2s;}
+  body.dark .card{border-color:rgba(255,255,255,.14);}
+  .card.dragging{box-shadow:0 10px 26px rgba(0,0,0,.25); z-index:10;}
+  .card.spawn{animation:spawn .45s cubic-bezier(.34,1.56,.64,1);}
+  @keyframes spawn{from{transform:scale(.5); opacity:0;} to{transform:scale(1); opacity:1;}}
+
+  .card-head{display:flex; align-items:center; padding:4px 8px; cursor:grab; opacity:.8;}
+  .card-head:active{cursor:grabbing;}
+  .grip{opacity:.55; font-size:12px; letter-spacing:1px;}
+  .spacer{flex:1;}
+  .iconbtn{border:none; background:transparent; cursor:pointer; font-size:13px; padding:2px 5px;
+    border-radius:6px; color:inherit; opacity:.8; transition:transform .15s, opacity .15s;}
+  .iconbtn:hover{opacity:1; transform:scale(1.2);}
+
+  .card-text{padding:8px 12px 12px; font-size:14px; line-height:1.4; outline:none; cursor:text;
+    -webkit-user-select:text; user-select:text; white-space:pre-wrap; word-break:break-word; min-height:22px;}
+  .card-text:empty:before{content:'Пусто…'; opacity:.45;}
+
+  .dot{position:absolute; width:9px; height:9px; border-radius:50%;
+    background:var(--dot); border:1.5px solid rgba(0,0,0,.35); z-index:5;
+    transform:translate(-50%,-50%); cursor:crosshair;
+    transition:transform .15s, background .15s;}
+  body.dark .dot{border-color:rgba(255,255,255,.35);}
+  .dot:hover,.dot.hot{transform:translate(-50%,-50%) scale(1.6); background:var(--dot-hover);}
+
+  #zoombar{position:fixed; right:14px; bottom:14px; z-index:60; display:flex; align-items:center; gap:2px;
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:4px 6px;
+    transition:background .35s;}
+  #zoombar .btn{border:none; background:transparent; padding:4px 10px;}
+  #zoombar .btn:hover{background:var(--btn-hover);}
+  #zoomPct{min-width:46px; text-align:center; font-size:13px; color:var(--muted);}
+
+  .radial{position:fixed; z-index:100; width:0; height:0;}
+  .radial .item{position:absolute; left:-16px; top:-16px; width:32px; height:32px; border-radius:50%;
+    border:2px solid rgba(255,255,255,.9); cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.25);
+    transform:translate(0,0) scale(.3); opacity:0;
+    transition:transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s;}
+  .radial.open .item{transform:translate(var(--tx),var(--ty)) scale(1); opacity:1;}
+  .radial .center{position:absolute; left:-17px; top:-17px; width:34px; height:34px; border-radius:50%;
+    background:var(--menu-bg); border:1px solid var(--panel-border); color:var(--text);
+    display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer;
+    box-shadow:var(--menu-shadow); transform:scale(.3); opacity:0;
+    transition:transform .22s cubic-bezier(.34,1.56,.64,1), opacity .18s;}
+  .radial.open .center{transform:scale(1); opacity:1;}
+</style>
+</head>
+<body>
+  <div id="topbar">
+    <button class="btn" id="addBtn">+ Заметка</button>
+    <span class="hint">тащите карточки за шапку &nbsp;·&nbsp; пустое место — движение камеры &nbsp;·&nbsp; колесо — зум</span>
+    <button class="btn" id="themeBtn">🌙</button>
+  </div>
+
+  <div id="viewport">
+    <div id="world">
+      <svg id="linksSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+
+  <div id="zoombar">
+    <button class="btn" id="zoomOut">−</button>
+    <span id="zoomPct">100%</span>
+    <button class="btn" id="zoomIn">+</button>
+    <button class="btn" id="fitBtn" title="Показать всё">⛶</button>
+  </div>
+
+<script>
+(function(){
+  const viewport=document.getElementById('viewport');
+  const world=document.getElementById('world');
+  const svg=document.getElementById('linksSvg');
+  const svgNS='http://www.w3.org/2000/svg';
+  const zoomPct=document.getElementById('zoomPct');
+  const getCss=v=>getComputedStyle(document.body).getPropertyValue(v).trim();
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+  const CARD_COLORS=[
+    {c:'#FFF6DC', t:'#4a4433'},
+    {c:'#FFE3EC', t:'#6b3a4c'},
+    {c:'#DFF6E7', t:'#2f5a44'},
+    {c:'#E1ECFF', t:'#35496e'},
+    {c:'#EFE4FF', t:'#4d3a6e'},
+    {c:'#FFE9D6', t:'#6e4a2f'},
+    {c:'#3A3F4A', t:'#f2f1ec'},
+    {c:'#5B4663', t:'#f2ecf4'}
+  ];
+  const LINE_COLORS=['#e05a5a','#e5a13a','#4fae62','#4a8fe0','#9a5ae0','#7d7b74'];
+
+  // точки: сверху и снизу по 2, слева и справа по 1
+  const PORTS={
+    t0:{fx:1/3, fy:0,   dx:0,  dy:-1},
+    t1:{fx:2/3, fy:0,   dx:0,  dy:-1},
+    b0:{fx:1/3, fy:1,   dx:0,  dy:1},
+    b1:{fx:2/3, fy:1,   dx:0,  dy:1},
+    l0:{fx:0,   fy:0.5, dx:-1, dy:0},
+    r0:{fx:1,   fy:0.5, dx:1,  dy:0}
+  };
+
+  let notes=[], links=[], cam={x:80,y:80,s:1}, nextId=1;
+  const noteEls=new Map(), linkEls=new Map();
+  let saveT=null;
+  const debounceSave=()=>{clearTimeout(saveT); saveT=setTimeout(save,400);};
+  const uid=()=>'n'+(nextId++)+'_'+Math.random().toString(36).slice(2,6);
+
+  function save(){
+    try{
+      localStorage.setItem('notesBoard.v2', JSON.stringify({
+        notes, links, cam,
+        theme:document.body.classList.contains('dark')?'dark':'light',
+        nextId
+      }));
+    }catch(e){}
+  }
+  function load(){
+    try{
+      const d=JSON.parse(localStorage.getItem('notesBoard.v2'));
+      if(d){
+        notes=d.notes||[]; links=d.links||[];
+        if(d.cam)cam=d.cam;
+        nextId=d.nextId||100;
+        if(d.theme==='dark')document.body.classList.add('dark');
+        return true;
+      }
+    }catch(e){}
+    return false;
+  }
+
+  function applyCam(){
+    world.style.transform=`translate(${cam.x}px,${cam.y}px) scale(${cam.s})`;
+    zoomPct.textContent=Math.round(cam.s*100)+'%';
+  }
+  function screenToWorld(cx,cy){
+    const r=viewport.getBoundingClientRect();
+    return {x:(cx-r.left-cam.x)/cam.s, y:(cy-r.top-cam.y)/cam.s};
+  }
+
+  function applyCardColor(el,note){
+    const col=CARD_COLORS[note.color]||CARD_COLORS[0];
+    el.style.background=col.c;
+    el.style.color=col.t;
+    el.style.setProperty('--card-border', col.t+'55');
+  }
+
+  function portPos(note,key){
+    const el=noteEls.get(note.id);
+    const W=el?el.offsetWidth:160, H=el?el.offsetHeight:80;
+    const p=PORTS[key];
+    return {x:note.x+p.fx*W, y:note.y+p.fy*H, dx:p.dx, dy:p.dy};
+  }
+
+  function pathFor(link){
+    const a=notes.find(n=>n.id===link.a.n), b=notes.find(n=>n.id===link.b.n);
+    if(!a||!b)return null;
+    const A=portPos(a,link.a.k), B=portPos(b,link.b.k);
+    const d=Math.hypot(B.x-A.x,B.y-A.y);
+    const k=Math.min(150, 30+d*0.35);
+    return `M ${A.x} ${A.y} C ${A.x+A.dx*k} ${A.y+A.dy*k}, ${B.x+B.dx*k} ${B.y+B.dy*k}, ${B.x} ${B.y}`;
+  }
+
+  function renderLink(link,animate){
+    const g=document.createElementNS(svgNS,'g');
+    const hit=document.createElementNS(svgNS,'path');
+    const vis=document.createElementNS(svgNS,'path');
+    hit.setAttribute('class','hit'); vis.setAttribute('class','vis');
+    hit.setAttribute('fill','none'); hit.setAttribute('stroke','transparent');
+    hit.setAttribute('stroke-width','16'); hit.setAttribute('stroke-linecap','round');
+    vis.setAttribute('fill','none'); vis.setAttribute('stroke-linecap','round');
+    vis.setAttribute('stroke-width','2.5');
+    vis.setAttribute('stroke', link.color||getCss('--line-default'));
+    g.appendChild(hit); g.appendChild(vis); svg.appendChild(g);
+    linkEls.set(link.id,{g,hit,vis});
+    updateLink(link);
+    hit.addEventListener('pointerdown', e=>{
+      e.stopPropagation();
+      openLineMenu(link, e.clientX, e.clientY);
+    });
+    if(animate){
+      const len=vis.getTotalLength();
+      vis.style.strokeDasharray=len; vis.style.strokeDashoffset=len;
+      vis.getBoundingClientRect();
+      vis.style.transition='stroke-dashoffset .35s ease';
+      vis.style.strokeDashoffset=0;
+      setTimeout(()=>{vis.style.strokeDasharray=''; vis.style.transition='';},420);
+    }
+  }
+  function updateLink(link){
+    const rec=linkEls.get(link.id); if(!rec)return;
+    const d=pathFor(link);
+    if(d===null){ removeLinkDom(link.id); links=links.filter(l=>l.id!==link.id); return; }
+    rec.hit.setAttribute('d',d); rec.vis.setAttribute('d',d);
+  }
+  function removeLinkDom(id){
+    const rec=linkEls.get(id);
+    if(rec){rec.g.remove(); linkEls.delete(id);}
+  }
+  function updateLinksOf(noteId){
+    links.forEach(l=>{ if(l.a.n===noteId||l.b.n===noteId) updateLink(l); });
+  }
+
+  function renderNote(note,spawn){
+    const el=document.createElement('div');
+    el.className='card'+(spawn?' spawn':'');
+    el.dataset.id=note.id;
+    applyCardColor(el,note);
+    el.innerHTML=`<div class="card-head"><span class="grip">⠿</span><span class="spacer"></span>`+
+      `<button class="iconbtn pal" title="Цвет">🎨</button>`+
+      `<button class="iconbtn del" title="Удалить">✕</button></div>`+
+      `<div class="card-text" contenteditable="true" spellcheck="false"></div>`;
+    const txt=el.querySelector('.card-text');
+    txt.innerText=note.text||'';
+    txt.addEventListener('input',()=>{ note.text=txt.innerText; debounceSave(); updateLinksOf(note.id); });
+
+    const frag=document.createDocumentFragment();
+    for(const key in PORTS){
+      const p=PORTS[key], d=document.createElement('div');
+      d.className='dot'; d.dataset.key=key;
+      const st=d.style;
+      if(p.fy===0) st.top='0'; else if(p.fy===1) st.top='100%'; else st.top='50%';
+      if(p.fx===0) st.left='0'; else if(p.fx===1) st.left='100%'; else st.left=(p.fx*100)+'%';
+      d.addEventListener('pointerdown', e=>startPortDrag(note,key,e));
+      frag.appendChild(d);
+    }
+    el.appendChild(frag);
+
+    el.addEventListener('pointerdown', e=>{
+      e.stopPropagation();
+      if(e.target.closest('.iconbtn')||e.target.closest('.dot')||e.target.closest('.card-text'))return;
+      startCardDrag(note,e);
+    });
+    el.querySelector('.pal').addEventListener('click', e=>{
+      e.stopPropagation();
+      openRadial(e.clientX,e.clientY, CARD_COLORS.map(c=>({color:c.c})),
+        i=>{ note.color=i; applyCardColor(noteEls.get(note.id),note); save(); });
+    });
+    el.querySelector('.del').addEventListener('click', e=>{
+      e.stopPropagation();
+      deleteNote(note.id);
+    });
+
+    world.appendChild(el);
+    noteEls.set(note.id,el);
+    el.style.left=note.x+'px'; el.style.top=note.y+'px';
+    setTimeout(()=>el.classList.remove('spawn'),500);
+  }
+
+  function startCardDrag(note,e){
+    const el=noteEls.get(note.id);
+    const sx=e.clientX, sy=e.clientY, ox=note.x, oy=note.y;
+    el.classList.add('dragging');
+    el.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      note.x=ox+(ev.clientX-sx)/cam.s;
+      note.y=oy+(ev.clientY-sy)/cam.s;
+      el.style.left=note.x+'px'; el.style.top=note.y+'px';
+      updateLinksOf(note.id);
+    };
+    const up=()=>{
+      el.classList.remove('dragging');
+      el.removeEventListener('pointermove',move);
+      el.removeEventListener('pointerup',up);
+      el.removeEventListener('pointercancel',up);
+      save();
+    };
+    el.addEventListener('pointermove',move);
+    el.addEventListener('pointerup',up);
+    el.addEventListener('pointercancel',up);
+  }
+
+  function startPortDrag(note,key,e){
+    e.stopPropagation();
+    const dot=e.currentTarget;
+    dot.setPointerCapture(e.pointerId);
+    const temp=document.createElementNS(svgNS,'path');
+    temp.setAttribute('fill','none');
+    temp.setAttribute('stroke',getCss('--line-default'));
+    temp.setAttribute('stroke-width','2.5');
+    temp.setAttribute('stroke-dasharray','7 6');
+    temp.setAttribute('stroke-linecap','round');
+    svg.appendChild(temp);
+    let target=null;
+    const clearHot=()=>document.querySelectorAll('.dot.hot').forEach(d=>d.classList.remove('hot'));
+    const move=ev=>{
+      const w=screenToWorld(ev.clientX,ev.clientY);
+      const A=portPos(note,key);
+      temp.setAttribute('d',`M ${A.x} ${A.y} L ${w.x} ${w.y}`);
+      target=findPortNear(ev.clientX,ev.clientY,note.id);
+      clearHot();
+      if(target){
+        const d=noteEls.get(target.note.id).querySelector(`.dot[data-key="${target.key}"]`);
+        if(d)d.classList.add('hot');
+      }
+    };
+    const up=()=>{
+      dot.removeEventListener('pointermove',move);
+      dot.removeEventListener('pointerup',up);
+      dot.removeEventListener('pointercancel',up);
+      clearHot(); temp.remove();
+      if(target && target.note.id!==note.id){
+        const dup=links.some(l=>
+          (l.a.n===note.id&&l.a.k===key&&l.b.n===target.note.id&&l.b.k===target.key)||
+          (l.b.n===note.id&&l.b.k===key&&l.a.n===target.note.id&&l.a.k===target.key));
+        if(!dup){
+          const link={id:uid(), a:{n:note.id,k:key}, b:{n:target.note.id,k:target.key}, color:null};
+          links.push(link); renderLink(link,true); save();
+        }
+      }
+    };
+    dot.addEventListener('pointermove',move);
+    dot.addEventListener('pointerup',up);
+    dot.addEventListener('pointercancel',up);
+  }
+
+  function findPortNear(cx,cy,excludeNoteId){
+    const r=viewport.getBoundingClientRect();
+    let best=null, bd=30;
+    for(const n of notes){
+      if(n.id===excludeNoteId)continue;
+      if(!noteEls.has(n.id))continue;
+      for(const key in PORTS){
+        const p=portPos(n,key);
+        const sx=p.x*cam.s+cam.x+r.left;
+        const sy=p.y*cam.s+cam.y+r.top;
+        const dist=Math.hypot(cx-sx,cy-sy);
+        if(dist<bd){bd=dist; best={note:n,key};}
+      }
+    }
+    return best;
+  }
+
+  function deleteNote(id){
+    notes=notes.filter(n=>n.id!==id);
+    links=links.filter(l=>{
+      if(l.a.n===id||l.b.n===id){removeLinkDom(l.id); return false;}
+      return true;
+    });
+    const el=noteEls.get(id);
+    if(el)el.remove();
+    noteEls.delete(id);
+    save();
+  }
+
+  // ---------- круговое меню ----------
+  let radialEl=null;
+  function closeRadial(){
+    if(radialEl){radialEl.remove(); radialEl=null;}
+  }
+  function openRadial(cx,cy,items,onPick,center){
+    closeRadial();
+    const m=document.createElement('div');
+    m.className='radial';
+    m.style.left=cx+'px'; m.style.top=cy+'px';
+    const R=56, n=items.length;
+    items.forEach((it,i)=>{
+      const d=document.createElement('div');
+      d.className='item';
+      d.style.background=it.color;
+      const ang=-Math.PI/2 + i*2*Math.PI/n;
+      d.style.setProperty('--tx',(Math.cos(ang)*R)+'px');
+      d.style.setProperty('--ty',(Math.sin(ang)*R)+'px');
+      d.addEventListener('pointerdown', ev=>{
+        ev.stopPropagation(); closeRadial(); onPick(i);
+      });
+      m.appendChild(d);
+    });
+    if(center){
+      const c=document.createElement('div');
+      c.className='center'; c.textContent=center.label;
+      c.addEventListener('pointerdown', ev=>{
+        ev.stopPropagation(); closeRadial(); center.action();
+      });
+      m.appendChild(c);
+    }
+    document.body.appendChild(m);
+    radialEl=m;
+    requestAnimationFrame(()=>m.classList.add('open'));
+    setTimeout(()=>document.addEventListener('pointerdown', closeRadial, {once:true}),0);
+  }
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape')closeRadial(); });
+
+  function openLineMenu(link,cx,cy){
+    const rec=linkEls.get(link.id); if(!rec)return;
+    openRadial(cx,cy, LINE_COLORS.map(c=>({color:c})),
+      i=>{
+        link.color=LINE_COLORS[i];
+        rec.vis.setAttribute('stroke',link.color);
+        save();
+      },
+      {label:'🗑', action:()=>{
+        links=links.filter(l=>l.id!==link.id);
+        removeLinkDom(link.id);
+        save();
+      }});
+  }
+
+  // ---------- камера ----------
+  viewport.addEventListener('pointerdown', e=>{
+    if(e.button!==0)return;
+    const sx=e.clientX, sy=e.clientY, ox=cam.x, oy=cam.y;
+    viewport.classList.add('panning');
+    viewport.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      cam.x=ox+(ev.clientX-sx);
+      cam.y=oy+(ev.clientY-sy);
+      applyCam();
+    };
+    const up=()=>{
+      viewport.classList.remove('panning');
+      viewport.removeEventListener('pointermove',move);
+      viewport.removeEventListener('pointerup',up);
+      viewport.removeEventListener('pointercancel',up);
+      save();
+    };
+    viewport.addEventListener('pointermove',move);
+    viewport.addEventListener('pointerup',up);
+    viewport.addEventListener('pointercancel',up);
+  });
+
+  function zoomAt(cx,cy,factor){
+    const r=viewport.getBoundingClientRect();
+    const mx=cx-r.left, my=cy-r.top;
+    const ns=clamp(cam.s*factor,0.2,3);
+    cam.x=mx-(mx-cam.x)*ns/cam.s;
+    cam.y=my-(my-cam.y)*ns/cam.s;
+    cam.s=ns;
+    applyCam(); save();
+  }
+  viewport.addEventListener('wheel', e=>{
+    e.preventDefault();
+    zoomAt(e.clientX,e.clientY, Math.exp(-e.deltaY*0.0015));
+  },{passive:false});
+
+  document.getElementById('zoomIn').addEventListener('click',()=>{
+    const r=viewport.getBoundingClientRect();
+    zoomAt(r.left+r.width/2, r.top+r.height/2, 1.25);
+  });
+  document.getElementById('zoomOut').addEventListener('click',()=>{
+    const r=viewport.getBoundingClientRect();
+    zoomAt(r.left+r.width/2, r.top+r.height/2, 1/1.25);
+  });
+  document.getElementById('fitBtn').addEventListener('click',fitView);
+  function fitView(){
+    if(!notes.length){cam={x:80,y:80,s:1}; applyCam(); save(); return;}
+    let x1=Infinity,y1=Infinity,x2=-Infinity,y2=-Infinity;
+    for(const n of notes){
+      const el=noteEls.get(n.id); if(!el)continue;
+      x1=Math.min(x1,n.x); y1=Math.min(y1,n.y);
+      x2=Math.max(x2,n.x+el.offsetWidth); y2=Math.max(y2,n.y+el.offsetHeight);
+    }
+    if(x1===Infinity)return;
+    const vw=viewport.clientWidth, vh=viewport.clientHeight, pad=60;
+    let s=clamp(Math.min((vw-2*pad)/(x2-x1),(vh-2*pad)/(y2-y1)),0.2,1.5);
+    cam.s=s;
+    cam.x=vw/2-(x1+x2)/2*s;
+    cam.y=vh/2-(y1+y2)/2*s;
+    applyCam(); save();
+  }
+
+  // ---------- остальное ----------
+  document.getElementById('addBtn').addEventListener('click',()=>{
+    const r=viewport.getBoundingClientRect();
+    const w=screenToWorld(r.left+r.width/2, r.top+r.height/2);
+    const note={id:uid(), x:w.x-80, y:w.y-40, color:0, text:''};
+    notes.push(note); renderNote(note,true); save();
+  });
+
+  const themeBtn=document.getElementById('themeBtn');
+  function syncThemeBtn(){ themeBtn.textContent=document.body.classList.contains('dark')?'☀️':'🌙'; }
+  themeBtn.addEventListener('click',()=>{
+    document.body.classList.toggle('dark');
+    syncThemeBtn();
+    const def=getCss('--line-default');
+    links.forEach(l=>{ if(!l.color)linkEls.get(l.id).vis.setAttribute('stroke',def); });
+    save();
+  });
+  syncThemeBtn();
+
+  const had=load();
+  applyCam();
+  notes.forEach(n=>renderNote(n,false));
+  links.forEach(l=>renderLink(l,false));
+  if(!had && notes.length===0){
+    const r=viewport.getBoundingClientRect();
+    const w=screenToWorld(r.left+r.width/2-80, r.top+r.height/2-40);
+    const note={id:uid(), x:w.x, y:w.y, color:0,
+      text:'Привет! Тащи меня за шапку ⠿, кликни по тексту — отредактируется, тяни точку к точке другой карточки — свяжу линией.'};
+    notes.push(note); renderNote(note,true); save();
+  }
+})();
+</script>
+</body>
+</html>
